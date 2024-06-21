@@ -74,18 +74,88 @@ class VerificationKey:
     # Basic, easier-to-understand version of what's going on
     def verify_proof_unoptimized(self, group_order: int, pf, public=[]) -> bool:
         # 4. Compute challenges
+        beta, gamma, alpha, zeta, v, u = self.compute_challenges(pf)
+
+        proof = pf.flatten()
 
         # 5. Compute zero polynomial evaluation Z_H(ζ) = ζ^n - 1
+        Z_H_eval = zeta**group_order - 1
 
         # 6. Compute Lagrange polynomial evaluation L_0(ζ)
+        root_of_unity = Scalar.root_of_unity(group_order)
+        L_0_eval = root_of_unity * Z_H_eval / group_order * (zeta - root_of_unity)
 
         # 7. Compute public input polynomial evaluation PI(ζ).
+        PI = Polynomial(
+            [Scalar(-x) for x in public] + [Scalar(0)] * (group_order - len(public)),
+            Basis.LAGRANGE
+        )
+        PI_eval = PI.barycentric_eval(zeta)
 
         # Recover the commitment to the linearization polynomial R,
         # exactly the same as what was created by the prover
+        gate_constraints = [
+            (self.Ql, proof['a_eval']),
+            (self.Qr, proof['b_eval']),
+            (self.Qo, proof['c_eval']),
+            (self.Qm, proof['a_eval'] * proof['b_eval']),
+            (self.Qc, 1),
+            (b.G1, PI_eval)
+        ]
+
+        permutation_product = [
+            (
+                proof['z_1'],
+                (
+                    (proof['a_eval'] + beta * zeta + gamma) *
+                    (proof['b_eval'] + 2 * beta * zeta + gamma) *
+                    (proof['c_eval'] + 3 * beta * zeta + gamma) *
+                    alpha
+                )
+            ),
+            (
+                self.S3,
+                (
+                    (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
+                    (proof['b_eval'] + 2 * beta * proof['s2_eval'] + gamma) *
+                    beta *
+                    -alpha *
+                    proof['z_shifted_eval']
+                )
+            ),
+            (
+                b.G1,
+                (
+                    (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
+                    (proof['b_eval'] + 2 * beta * proof['s2_eval'] + gamma) *
+                    (proof['c_eval'] + gamma) *
+                    -alpha *
+                    proof['z_shifted_eval']
+                )
+            )
+        ]
+
+        permutation_final_check = [
+            (proof['z_1'], L_0_eval * alpha**2),
+            (b.G1, -L_0_eval * alpha**2),
+        ]
+
+        permutation_last_term = [
+            (proof['t_lo_1'], -Z_H_eval),
+            (proof['t_mid_1'], -Z_H_eval * zeta**group_order),
+            (proof['t_hi_1'], -Z_H_eval * zeta**(2 * group_order))
+        ]
+
+        r = ec_lincomb(gate_constraints + permutation_product + permutation_final_check + permutation_last_term)
 
         # Verify that R(z) = 0 and the prover-provided evaluations
         # A(z), B(z), C(z), S1(z), S2(z) are all correct
+        W_Z = ec_lincomb(
+            [
+                (r, 1),
+                (b.G1, v * (proof['a_1'] - proof['a_eval']))
+            ]
+        )
 
         # Verify that the provided value of Z(zeta*w) is correct
 
