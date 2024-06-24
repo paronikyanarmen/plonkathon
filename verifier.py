@@ -82,8 +82,7 @@ class VerificationKey:
         Z_H_eval = zeta**group_order - 1
 
         # 6. Compute Lagrange polynomial evaluation L_0(ζ)
-        root_of_unity = Scalar.root_of_unity(group_order)
-        L_0_eval = root_of_unity * Z_H_eval / group_order * (zeta - root_of_unity)
+        L_0_eval = Z_H_eval / (group_order * (zeta - 1))
 
         # 7. Compute public input polynomial evaluation PI(ζ).
         PI = Polynomial(
@@ -117,7 +116,7 @@ class VerificationKey:
                 self.S3,
                 (
                     (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
-                    (proof['b_eval'] + 2 * beta * proof['s2_eval'] + gamma) *
+                    (proof['b_eval'] + beta * proof['s2_eval'] + gamma) *
                     beta *
                     -alpha *
                     proof['z_shifted_eval']
@@ -127,7 +126,7 @@ class VerificationKey:
                 b.G1,
                 (
                     (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
-                    (proof['b_eval'] + 2 * beta * proof['s2_eval'] + gamma) *
+                    (proof['b_eval'] + beta * proof['s2_eval'] + gamma) *
                     (proof['c_eval'] + gamma) *
                     -alpha *
                     proof['z_shifted_eval']
@@ -136,8 +135,8 @@ class VerificationKey:
         ]
 
         permutation_final_check = [
-            (proof['z_1'], L_0_eval * alpha**2),
-            (b.G1, -L_0_eval * alpha**2),
+            (proof['z_1'], L_0_eval * alpha ** 2),
+            (b.G1, -L_0_eval * alpha ** 2),
         ]
 
         permutation_last_term = [
@@ -153,13 +152,35 @@ class VerificationKey:
         W_Z = ec_lincomb(
             [
                 (r, 1),
-                (b.G1, v * (proof['a_1'] - proof['a_eval']))
+                (proof["a_1"], v),
+                (b.G1, -v * proof["a_eval"]),
+                (proof["b_1"], v ** 2),
+                (b.G1, -(v ** 2) * proof["b_eval"]),
+                (proof["c_1"], v ** 3),
+                (b.G1, -(v ** 3) * proof["c_eval"]),
+                (self.S1, v ** 4),
+                (b.G1, -(v ** 4) * proof["s1_eval"]),
+                (self.S2, v ** 5),
+                (b.G1, -(v ** 5) * proof["s2_eval"])
             ]
         )
 
-        # Verify that the provided value of Z(zeta*w) is correct
+        X_minus_zeta = b.add(self.X_2, ec_mul(b.G2, -zeta))
 
-        return False
+        assert b.pairing(b.G2, W_Z) == b.pairing(X_minus_zeta, proof['W_z_1'])
+
+        print('W_Z check done')
+
+        X_minus_zeta_omega = b.add(self.X_2, ec_mul(b.G2, -zeta * Scalar.root_of_unity(group_order)))
+
+        Z_minus_zw = ec_lincomb([
+            (proof['z_1'], 1),
+            (b.G1, -proof['z_shifted_eval'])
+        ])
+
+        assert b.pairing(b.G2, Z_minus_zw) == b.pairing(X_minus_zeta_omega, proof['W_zw_1'])
+
+        return True
 
     # Compute challenges (should be same as those computed by prover)
     def compute_challenges(
