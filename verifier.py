@@ -39,18 +39,98 @@ class VerificationKey:
     # efficiently batch them
     def verify_proof(self, group_order: int, pf, public=[]) -> bool:
         # 4. Compute challenges
+        beta, gamma, alpha, zeta, v, u = self.compute_challenges(pf)
 
         # 5. Compute zero polynomial evaluation Z_H(ζ) = ζ^n - 1
+        Z_H_eval = zeta**group_order - 1
 
         # 6. Compute Lagrange polynomial evaluation L_0(ζ)
+        L_0_eval = Z_H_eval / (group_order * (zeta - 1))
 
         # 7. Compute public input polynomial evaluation PI(ζ).
+        PI = Polynomial(
+            [Scalar(-x) for x in public] + [Scalar(0)] * (group_order - len(public)),
+            Basis.LAGRANGE
+        )
+        PI_eval = PI.barycentric_eval(zeta)
+
+        proof = pf.flatten()
 
         # Compute the constant term of R. This is not literally the degree-0
         # term of the R polynomial; rather, it's the portion of R that can
-        # be computed directly, without resorting to elliptic cutve commitments
+        # be computed directly, without resorting to elliptic curve commitments
+        r_0 = (
+            PI_eval -
+            L_0_eval * alpha**2 -
+            alpha *
+            (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
+            (proof['b_eval'] + beta * proof['s2_eval'] + gamma) *
+            (proof['c_eval'] + gamma) *
+            proof['z_shifted_eval']
+        )
 
         # Compute D = (R - r0) + u * Z, and E and F
+        R_gate_constraints = [
+            (self.Ql, proof['a_eval']),
+            (self.Qr, proof['b_eval']),
+            (self.Qo, proof['c_eval']),
+            (self.Qm, proof['a_eval'] * proof['b_eval']),
+            (self.Qc, 1)
+        ]
+
+        R_permutation_pol = [
+            (
+                proof['z_1'],
+                (
+                        (proof['a_eval'] + beta * zeta + gamma) *
+                        (proof['b_eval'] + 2 * beta * zeta + gamma) *
+                        (proof['c_eval'] + 3 * beta * zeta + gamma) *
+                        alpha +
+                        L_0_eval * alpha ** 2 +
+                        u
+                )
+            ),
+            (
+                self.S3,
+                (
+                    (proof['a_eval'] + beta * proof['s1_eval'] + gamma) *
+                    (proof['b_eval'] + beta * proof['s2_eval'] + gamma) *
+                    beta *
+                    -alpha *
+                    proof['z_shifted_eval']
+                )
+            )
+        ]
+
+        R_permutation_last_term = [
+            (proof['t_lo_1'], -Z_H_eval),
+            (proof['t_mid_1'], -Z_H_eval * zeta**group_order),
+            (proof['t_hi_1'], -Z_H_eval * zeta**(2 * group_order))
+        ]
+
+        D = ec_lincomb(R_gate_constraints + R_permutation_pol + R_permutation_last_term)
+
+        E = ec_mul(
+            b.G1,
+            -r_0 +
+            v * proof['a_eval'] +
+            v**2 * proof['b_eval'] +
+            v**3 * proof['c_eval'] +
+            v**4 * proof['s1_eval'] +
+            v**5 * proof['s2_eval'] +
+            u * proof['z_shifted_eval']
+        )
+
+        F = ec_lincomb(
+            [
+                (D, 1),
+                (proof["a_1"], v),
+                (proof["b_1"], v**2),
+                (proof["c_1"], v**3),
+                (self.S1, v**4),
+                (self.S2, v**5),
+            ]
+        )
 
         # Run one pairing check to verify the last two checks.
         # What's going on here is a clever re-arrangement of terms to check
@@ -69,7 +149,21 @@ class VerificationKey:
         # so at this point we can take a random linear combination of the two
         # checks, and verify it with only one pairing.
 
-        return False
+        first_term = ec_lincomb([
+            (proof['W_z_1'], 1),
+            (proof['W_zw_1'], u)
+        ])
+
+        second_term = ec_lincomb([
+            (proof['W_z_1'], zeta),
+            (proof['W_zw_1'], u * zeta * Scalar.root_of_unity(group_order)),
+            (F, 1),
+            (E, -1)
+        ])
+
+        assert b.pairing(self.X_2, first_term) == b.pairing(b.G2, second_term)
+
+        return True
 
     # Basic, easier-to-understand version of what's going on
     def verify_proof_unoptimized(self, group_order: int, pf, public=[]) -> bool:
