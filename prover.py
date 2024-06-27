@@ -1,3 +1,5 @@
+import random
+
 from compiler.program import Program, CommonPreprocessedInput
 from utils import *
 from setup import *
@@ -108,10 +110,22 @@ class Prover:
 
         # Construct A, B, C Lagrange interpolation polynomials for
         # A_values, B_values, C_values
+        roots_of_unity = Scalar.roots_of_unity(group_order)
 
-        self.A = Polynomial(A_values, Basis.LAGRANGE)
-        self.B = Polynomial(B_values, Basis.LAGRANGE)
-        self.C = Polynomial(C_values, Basis.LAGRANGE)
+        Z_H = Polynomial(
+            [r**group_order - 1 for r in roots_of_unity],
+            Basis.LAGRANGE
+        )
+
+        roots = Polynomial(roots_of_unity, basis=Basis.LAGRANGE)
+
+        blinding_terms = [0] * 6
+        for i in range(6):
+            blinding_terms[i] = Scalar(random.randint(0, Scalar.field_modulus - 1))
+
+        self.A = Polynomial(A_values, Basis.LAGRANGE) + Z_H * (roots * blinding_terms[0] + blinding_terms[1])
+        self.B = Polynomial(B_values, Basis.LAGRANGE) + Z_H * (roots * blinding_terms[2] + blinding_terms[3])
+        self.C = Polynomial(C_values, Basis.LAGRANGE) + Z_H * (roots * blinding_terms[4] + blinding_terms[5])
 
         # Compute a_1, b_1, c_1 commitments to A, B, C polynomials
         a_1 = setup.commit(self.A)
@@ -180,8 +194,27 @@ class Prover:
                 (i + 1) % group_order
             ] == 0
 
+        roots_of_unity = Scalar.roots_of_unity(group_order)
+
+        Z_H = Polynomial(
+            [r**group_order - 1 for r in roots_of_unity],
+            Basis.LAGRANGE
+        )
+
+        roots = Polynomial(roots_of_unity, basis=Basis.LAGRANGE)
+        roots_squared = Polynomial(
+            [r**2 for r in roots_of_unity],
+            Basis.LAGRANGE
+        )
+
+        blinding_terms = [0] * 3
+        for i in range(3):
+            blinding_terms[i] = Scalar(random.randint(0, Scalar.field_modulus - 1))
+
         # Construct Z, Lagrange interpolation polynomial for Z_values
-        self.Z = Polynomial(Z_values, Basis.LAGRANGE)
+        blinding_part = Z_H * (roots_squared * blinding_terms[0] + roots * blinding_terms[1] + blinding_terms[2])
+
+        self.Z = Polynomial(Z_values, Basis.LAGRANGE) + blinding_part
 
         # Cpmpute z_1 commitment to Z polynomial
         z_1 = setup.commit(self.Z)
@@ -340,9 +373,7 @@ class Prover:
 
     def round_5(self) -> Message5:
         group_order = self.group_order
-        setup = self.setup
 
-        zeta = self.zeta
         # Evaluate the Lagrange basis polynomial L0 at zeta
         L0_eval = self.L0.barycentric_eval(self.zeta)
 
