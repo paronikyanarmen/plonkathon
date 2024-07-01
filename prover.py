@@ -1,5 +1,6 @@
 import random
 
+from commitment_scheme import CommitmentScheme
 from compiler.program import Program, CommonPreprocessedInput
 from utils import *
 from setup import *
@@ -40,13 +41,13 @@ class Proof:
 @dataclass
 class Prover:
     group_order: int
-    setup: Setup
     program: Program
     pk: CommonPreprocessedInput
+    commitment_scheme: CommitmentScheme
 
-    def __init__(self, setup: Setup, program: Program):
+    def __init__(self, commitment_scheme: CommitmentScheme, program: Program):
         self.group_order = program.group_order
-        self.setup = setup
+        self.commitment_scheme = commitment_scheme
         self.program = program
         self.pk = program.common_preprocessed_input()
 
@@ -90,7 +91,6 @@ class Prover:
         witness: dict[Optional[str], int],
     ) -> Message1:
         program = self.program
-        setup = self.setup
         group_order = self.group_order
 
         if None not in witness:
@@ -128,9 +128,9 @@ class Prover:
         self.C = Polynomial(C_values, Basis.LAGRANGE) + Z_H * (roots * blinding_terms[4] + blinding_terms[5])
 
         # Compute a_1, b_1, c_1 commitments to A, B, C polynomials
-        a_1 = setup.commit(self.A)
-        b_1 = setup.commit(self.B)
-        c_1 = setup.commit(self.C)
+        a_1 = self.commitment_scheme.commit(self.A)
+        b_1 = self.commitment_scheme.commit(self.B)
+        c_1 = self.commitment_scheme.commit(self.C)
 
         # Sanity check that witness fulfils gate constraints
         assert (
@@ -148,7 +148,6 @@ class Prover:
 
     def round_2(self) -> Message2:
         group_order = self.group_order
-        setup = self.setup
 
         # Using A, B, C, values, and pk.S1, pk.S2, pk.S3, compute
         # Z_values for permutation grand product polynomial Z
@@ -217,14 +216,13 @@ class Prover:
         self.Z = Polynomial(Z_values, Basis.LAGRANGE) + blinding_part
 
         # Cpmpute z_1 commitment to Z polynomial
-        z_1 = setup.commit(self.Z)
+        z_1 = self.commitment_scheme.commit(self.Z)
 
         # Return z_1
         return Message2(z_1)
 
     def round_3(self) -> Message3:
         group_order = self.group_order
-        setup = self.setup
 
         # Compute the quotient polynomial
 
@@ -346,9 +344,9 @@ class Prover:
         print("Generated T1, T2, T3 polynomials")
 
         # Compute commitments t_lo_1, t_mid_1, t_hi_1 to T1, T2, T3 polynomials
-        t_lo_1 = setup.commit(self.T1)
-        t_mid_1 = setup.commit(self.T2)
-        t_hi_1 = setup.commit(self.T3)
+        t_lo_1 = self.commitment_scheme.commit(self.T1)
+        t_mid_1 = self.commitment_scheme.commit(self.T2)
+        t_hi_1 = self.commitment_scheme.commit(self.T3)
 
         # Return t_lo_1, t_mid_1, t_hi_1
         return Message3(t_lo_1, t_mid_1, t_hi_1)
@@ -452,8 +450,6 @@ class Prover:
 
         R = Polynomial(R_coeffs[:self.group_order], basis=Basis.MONOMIAL).fft()
 
-        # Commit to R
-        R_1 = self.setup.commit(R)
 
         # Sanity-check R
         assert R.barycentric_eval(self.zeta) == 0
@@ -502,7 +498,7 @@ class Prover:
         W_z = Polynomial(W_z_coeffs[:group_order], Basis.MONOMIAL).fft()
 
         # Compute W_z_1 commitment to W_z
-        W_z_1 = self.setup.commit(W_z)
+        W_z_1 = self.commitment_scheme.commit(W_z)
 
         # Generate proof that the provided evaluation of Z(z*w) is correct. This
         # awkwardly different term is needed because the permutation accumulator
@@ -525,7 +521,7 @@ class Prover:
 
         W_zw = Polynomial(W_zw_coeffs[:group_order], Basis.MONOMIAL).fft()
 
-        W_zw_1 = self.setup.commit(W_zw)
+        W_zw_1 = self.commitment_scheme.commit(W_zw)
 
         print("Generated final quotient witness polynomials")
 

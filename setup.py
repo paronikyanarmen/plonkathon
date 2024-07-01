@@ -1,10 +1,8 @@
-from utils import *
-import py_ecc.bn128 as b
-from curve import ec_lincomb, G1Point, G2Point, lincomb
-from compiler.program import CommonPreprocessedInput
-from verifier import VerificationKey
 from dataclasses import dataclass
-from poly import Polynomial, Basis
+
+import py_ecc.bn128 as b
+
+from curve import G1Point, G2Point
 
 # Recover the trusted setup from a file in the format used in
 # https://github.com/iden3/snarkjs#7-prepare-phase-2
@@ -27,7 +25,7 @@ class Setup(object):
         powers = 2 ** contents[SETUP_FILE_POWERS_POS]
         # Extract G1 points, which start at byte 80
         values = [
-            int.from_bytes(contents[i : i + 32], "little")
+            int.from_bytes(contents[i: i + 32], "little")
             for i in range(
                 SETUP_FILE_G1_STARTPOS, SETUP_FILE_G1_STARTPOS + 32 * powers * 2, 32
             )
@@ -45,14 +43,14 @@ class Setup(object):
         pos = SETUP_FILE_G1_STARTPOS + 32 * powers * 2
         target = (factor * b.G2[0].coeffs[0]).n
         while pos < len(contents):
-            v = int.from_bytes(contents[pos : pos + 32], "little")
+            v = int.from_bytes(contents[pos: pos + 32], "little")
             if v == target:
                 break
             pos += 1
         print("Detected start of G2 side at byte {}".format(pos))
-        X2_encoding = contents[pos + 32 * 4 : pos + 32 * 8]
+        X2_encoding = contents[pos + 32 * 4: pos + 32 * 8]
         X2_values = [
-            b.FQ(int.from_bytes(X2_encoding[i : i + 32], "little")) / factor
+            b.FQ(int.from_bytes(X2_encoding[i: i + 32], "little")) / factor
             for i in range(0, 128, 32)
         ]
         X2 = (b.FQ2(X2_values[:2]), b.FQ2(X2_values[2:]))
@@ -61,37 +59,3 @@ class Setup(object):
         # assert b.pairing(b.G2, powers_of_x[1]) == b.pairing(X2, b.G1)
         # print("X^1 points checked consistent")
         return cls(powers_of_x, X2)
-
-    # Encodes the KZG commitment that evaluates to the given values in the group
-    def commit(self, values: Polynomial) -> G1Point:
-        assert values.basis == Basis.LAGRANGE
-
-        coeffs = values.ifft().values
-
-        if len(coeffs) > len(self.powers_of_x):
-            raise ValueError()
-
-        commitment = ec_lincomb(list(zip(self.powers_of_x, coeffs)))
-
-        # Run inverse FFT to convert values from Lagrange basis to monomial basis
-        # Optional: Check values size does not exceed maximum power setup can handle
-        # Compute linear combination of setup with values
-        return commitment
-
-    # Generate the verification key for this program with the given setup
-    def verification_key(self, pk: CommonPreprocessedInput) -> VerificationKey:
-        vk = VerificationKey(
-            group_order=pk.group_order,
-            Ql=self.commit(pk.QL),
-            Qr=self.commit(pk.QR),
-            Qo=self.commit(pk.QO),
-            Qm=self.commit(pk.QM),
-            Qc=self.commit(pk.QC),
-            S1=self.commit(pk.S1),
-            S2=self.commit(pk.S2),
-            S3=self.commit(pk.S3),
-            w=Scalar.root_of_unity(pk.group_order),
-            X_2=self.X2
-        )
-        # Create the appropriate VerificationKey object
-        return vk

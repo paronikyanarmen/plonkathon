@@ -2,10 +2,10 @@ import pickle
 from TESTING_verifier_DO_NOT_OPEN import TestingVerificationKey
 from compiler.program import Program
 from curve import G1Point
+from kate_commitment import KateCommitment
 from poly import Basis, Polynomial
 from setup import Setup
 from prover import Prover
-from verifier import VerificationKey
 import json
 from test.mini_poseidon import rc, mds, poseidon_hash
 from utils import *
@@ -19,14 +19,15 @@ def setup_test():
         list(map(Scalar, [1, 2, 3, 4, 5, 6, 7, 8])), Basis.LAGRANGE
     )
     program = Program(["c <== a * b"], 8)
-    commitment = setup.commit(dummy_values)
+    commitment_scheme = KateCommitment(setup)
+    commitment = commitment_scheme.commit(dummy_values)
     assert commitment == G1Point(
         (
             16120260411117808045030798560855586501988622612038310041007562782458075125622,
             3125847109934958347271782137825877642397632921923926105820408033549219695465,
         )
     )
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     assert (
         vk.w
         == 19540430494807482326159819597004422086093766032135589407132600596362845576832
@@ -41,7 +42,8 @@ def basic_test():
     setup = Setup.from_file("test/powersOfTau28_hez_final_11.ptau")
     print("Extracted setup")
     program = Program(["c <== a * b"], 8)
-    vk = setup.verification_key(program.common_preprocessed_input())
+    commitment_scheme = KateCommitment(setup)
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     print("Generated verification key")
     their_output = json.load(open("test/main.plonk.vkey.json"))
     for key in ("Qm", "Ql", "Qr", "Qo", "Qc", "S1", "S2", "S3", "X_2"):
@@ -53,7 +55,7 @@ def basic_test():
             )
     assert getattr(vk, "w") == int(their_output["w"])
     print("Basic test success")
-    return setup
+    return commitment_scheme
 
 
 # Equivalent to this zkrepl code:
@@ -64,11 +66,11 @@ def basic_test():
 #    signal c;
 #    c <== a * b + a;
 # }
-def ab_plus_a_test(setup):
+def ab_plus_a_test(commitment_scheme):
     print("===ab_plus_a_test===")
 
     program = Program(["ab === a - c", "-ab === a * b"], 8)
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     print("Generated verification key")
     their_output = json.load(open("test/main.plonk.vkey-58.json"))
     for key in ("Qm", "Ql", "Qr", "Qo", "Qc", "S1", "S2", "S3", "X_2"):
@@ -82,11 +84,11 @@ def ab_plus_a_test(setup):
     print("ab+a test success")
 
 
-def one_public_input_test(setup):
+def one_public_input_test(commitment_scheme):
     print("===one_public_input_test===")
 
     program = Program(["c public", "c === a * b"], 8)
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     print("Generated verification key")
     their_output = json.load(open("test/main.plonk.vkey-59.json"))
     for key in ("Qm", "Ql", "Qr", "Qo", "Qc", "S1", "S2", "S3", "X_2"):
@@ -100,19 +102,19 @@ def one_public_input_test(setup):
     print("One public input test success")
 
 
-def prover_test_dummy_verifier(setup):
+def prover_test_dummy_verifier(commitment_scheme):
     print("===prover_test_dummy_verifier===")
 
     print("Beginning prover test with test verifier")
     program = Program(["e public", "c <== a * b", "e <== c * d"], 8)
     assignments = {"a": 3, "b": 4, "c": 12, "d": 5, "e": 60}
-    prover = Prover(setup, program)
+    prover = Prover(commitment_scheme, program)
     proof = prover.prove(assignments)
 
     print("Beginning test verification")
     program = Program(["e public", "c <== a * b", "e <== c * d"], 8)
     public = [60]
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
 
     vk_test = TestingVerificationKey(
         group_order=vk.group_order,
@@ -133,42 +135,42 @@ def prover_test_dummy_verifier(setup):
     print("Prover test with dummy verifier success")
 
 
-def prover_test(setup):
+def prover_test(commitment_scheme):
     print("===prover_test===")
 
     print("Beginning prover test")
     program = Program(["e public", "c <== a * b", "e <== c * d"], 8)
     assignments = {"a": 3, "b": 4, "c": 12, "d": 5, "e": 60}
-    prover = Prover(setup, program)
+    prover = Prover(commitment_scheme, program)
     proof = prover.prove(assignments)
     print("Prover test success")
     return proof
 
 
-def verifier_test_unoptimized(setup, proof):
+def verifier_test_unoptimized(commitment_scheme, proof):
     print("===verifier_test_unoptimized===")
 
     print("Beginning verifier test")
     program = Program(["e public", "c <== a * b", "e <== c * d"], 8)
     public = [60]
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     assert vk.verify_proof_unoptimized(8, proof, public)
     print("Verifier test success")
 
 
-def verifier_test_full(setup, proof):
+def verifier_test_full(commitment_scheme, proof):
     print("===verifier_test_full===")
 
     print("Beginning verifier test")
     program = Program(["e public", "c <== a * b", "e <== c * d"], 8)
     public = [60]
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     assert vk.verify_proof_unoptimized(8, proof, public)
     assert vk.verify_proof(8, proof, public)
     print("Verifier test success")
 
 
-def factorization_test(setup):
+def factorization_test(commitment_scheme):
     print("===factorization_test===")
 
     print("Beginning test: prove you know small integers that multiply to 91")
@@ -192,7 +194,7 @@ def factorization_test(setup):
         16,
     )
     public = [91]
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     print("Generated verification key")
     assignments = program.fill_variable_assignments(
         {
@@ -206,7 +208,7 @@ def factorization_test(setup):
             "qb0": 1,
         }
     )
-    prover = Prover(setup, program)
+    prover = Prover(commitment_scheme, program)
     proof = prover.prove(assignments)
     print("Generated proof")
     assert vk.verify_proof(16, proof, public)
@@ -239,7 +241,7 @@ def output_proof_lang() -> str:
     return "\n".join(o)
 
 
-def poseidon_test(setup):
+def poseidon_test(commitment_scheme):
     print("===poseidon_test===")
 
     # PLONK-prove the correctness of a Poseidon execution. Note that this is
@@ -250,9 +252,9 @@ def poseidon_test(setup):
     program = Program.from_str(output_proof_lang(), 1024)
     print("Generated code for Poseidon test")
     assignments = program.fill_variable_assignments({"L0": 1, "M0": 2})
-    vk = setup.verification_key(program.common_preprocessed_input())
+    vk = commitment_scheme.verification_key(program.common_preprocessed_input())
     print("Generated verification key")
-    prover = Prover(setup, program)
+    prover = Prover(commitment_scheme, program)
     proof = prover.prove(assignments)
     print("Generated proof")
     assert vk.verify_proof(1024, proof, [1, 2, expected_value])
@@ -263,21 +265,21 @@ if __name__ == "__main__":
     # Step 1: Pass setup test
     setup_test()
 
-    setup = basic_test()
+    commitment_scheme = basic_test()
 
     # Step 2: Pass prover test using verifier we provide (DO NOT READ TEST VERIFIER CODE)
-    prover_test_dummy_verifier(setup)
+    prover_test_dummy_verifier(commitment_scheme)
 
     # Step 3: Pass verifier test using your own verifier
     with open("test/proof.pickle", "rb") as f:
         proof = pickle.load(f)
-    verifier_test_unoptimized(setup, proof)
-    verifier_test_full(setup, proof)
+    verifier_test_unoptimized(commitment_scheme, proof)
+    verifier_test_full(commitment_scheme, proof)
 
     # Step 4: Pass end-to-end tests for prover and verifier
-    ab_plus_a_test(setup)
-    one_public_input_test(setup)
-    proof = prover_test(setup)
-    verifier_test_full(setup, proof)
-    factorization_test(setup)
-    poseidon_test(setup)
+    ab_plus_a_test(commitment_scheme)
+    one_public_input_test(commitment_scheme)
+    proof = prover_test(commitment_scheme)
+    verifier_test_full(commitment_scheme, proof)
+    factorization_test(commitment_scheme)
+    poseidon_test(commitment_scheme)
